@@ -17,6 +17,19 @@ function createDeck() {
   return shuffle([...ANIMALS, ...ANIMALS]).map((emoji, i) => ({ id: i, emoji }));
 }
 
+/* Firebase drops empty arrays — this restores them */
+function normalize(g) {
+  if (!g) return null;
+  return {
+    ...g,
+    deck: g.deck || [],
+    matched: g.matched || [],
+    flipped: g.flipped || [],
+    scores: g.scores || { alisa: 0, alesha: 0 },
+    players: g.players || { alisa: false, alesha: false },
+  };
+}
+
 const PLAYERS = {
   alisa: { name: "Алиса", emoji: "🧝‍♀️", color: "#f472b6" },
   alesha: { name: "Алёша", emoji: "🧙‍♂️", color: "#60a5fa" },
@@ -34,6 +47,75 @@ const INITIAL = {
   ts: 0,
 };
 
+/* ---- Demo cards for lobby ---- */
+const DEMO_PAIRS = ["🦊","🐙","🦋"];
+const DEMO_DECK = shuffle([...DEMO_PAIRS, ...DEMO_PAIRS]).map((emoji, i) => ({ id: i, emoji }));
+
+function DemoCards() {
+  const [cards] = useState(DEMO_DECK);
+  const [flipped, setFlipped] = useState([]);
+  const [matched, setMatched] = useState([]);
+  const [locked, setLocked] = useState(false);
+
+  const handleFlip = (idx) => {
+    if (locked || matched.includes(idx) || flipped.includes(idx)) return;
+    const next = [...flipped, idx];
+    setFlipped(next);
+    if (next.length === 2) {
+      setLocked(true);
+      const [a, b] = next;
+      if (cards[a].emoji === cards[b].emoji) {
+        setTimeout(() => {
+          setMatched(p => [...p, a, b]);
+          setFlipped([]);
+          setLocked(false);
+        }, 500);
+      } else {
+        setTimeout(() => { setFlipped([]); setLocked(false); }, 800);
+      }
+    }
+  };
+
+  const allMatched = matched.length === cards.length;
+
+  return (
+    <div style={{ marginTop: 20, textAlign: "center" }}>
+      <div style={{ fontSize: 11, color: "#64748b", marginBottom: 8 }}>
+        Попробуй — переверни карточки, найди 3 пары
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 50px)", gap: 5, justifyContent: "center" }}>
+        {cards.map((card, idx) => {
+          const show = flipped.includes(idx) || matched.includes(idx);
+          const done = matched.includes(idx);
+          return (
+            <button
+              key={idx}
+              onClick={() => handleFlip(idx)}
+              style={{
+                width: 50, height: 50, borderRadius: 8,
+                border: done ? "1.5px solid #4ade80" : show ? "1.5px solid #60a5fa" : "1.5px solid #334155",
+                background: done ? "#14532d" : show ? "#1e3a5f" : "#1e293b",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                cursor: done ? "default" : "pointer",
+                opacity: done ? 0.6 : 1,
+                transition: "all 0.2s",
+                fontSize: 20, padding: 0,
+                fontFamily: "'Nunito', sans-serif",
+              }}
+            >
+              {show ? card.emoji : <span style={{ opacity: 0.3 }}>?</span>}
+            </button>
+          );
+        })}
+      </div>
+      {allMatched && (
+        <div style={{ fontSize: 12, color: "#4ade80", marginTop: 6 }}>Всё работает! Выбирай имя и играй ✓</div>
+      )}
+    </div>
+  );
+}
+
+/* ---- Main Game ---- */
 export default function App() {
   const [game, setGame] = useState(null);
   const [me, setMe] = useState(null);
@@ -41,15 +123,15 @@ export default function App() {
   const flipTimerRef = useRef(null);
 
   useEffect(() => {
-    loadGame().then(g => { setGame(g || INITIAL); setLoading(false); });
+    loadGame().then(g => { setGame(normalize(g) || INITIAL); setLoading(false); });
   }, []);
 
-  // Real-time Firebase listener
   useEffect(() => {
     if (!me) return;
     const unsub = onGameUpdate((g) => {
+      const ng = normalize(g);
       setGame(prev => {
-        if (!prev || g.ts !== prev.ts) return g;
+        if (!prev || ng.ts !== prev.ts) return ng;
         return prev;
       });
     });
@@ -57,7 +139,7 @@ export default function App() {
   }, [me]);
 
   const joinAs = async (who) => {
-    let g = await loadGame();
+    let g = normalize(await loadGame());
     if (!g) g = { ...INITIAL };
     g.players[who] = true;
     if (g.players.alisa && g.players.alesha) {
@@ -79,10 +161,12 @@ export default function App() {
 
   const handleFlip = useCallback(async (idx) => {
     if (!game || game.turn !== me || game.phase !== "playing") return;
-    if (game.matched.includes(idx) || game.flipped.includes(idx)) return;
-    if (game.flipped.length >= 2 || game.checkPending) return;
+    const matched = game.matched || [];
+    const flipped = game.flipped || [];
+    if (matched.includes(idx) || flipped.includes(idx)) return;
+    if (flipped.length >= 2 || game.checkPending) return;
 
-    const g = JSON.parse(JSON.stringify(game));
+    const g = normalize(JSON.parse(JSON.stringify(game)));
     g.flipped = [...g.flipped, idx];
 
     if (g.flipped.length === 2) {
@@ -95,7 +179,7 @@ export default function App() {
 
       if (flipTimerRef.current) clearTimeout(flipTimerRef.current);
       flipTimerRef.current = setTimeout(async () => {
-        const g2 = JSON.parse(JSON.stringify(g));
+        const g2 = normalize(JSON.parse(JSON.stringify(g)));
         if (isMatch) {
           g2.matched = [...g2.matched, a, b];
           g2.scores[me] += 1;
@@ -157,6 +241,9 @@ export default function App() {
         {me && !(aj && bj) && (
           <div style={s.waiting}>Ждём второго игрока...</div>
         )}
+
+        <DemoCards />
+
         {game && (aj || bj) && (
           <button onClick={reset} style={s.resetSmall}>Сбросить</button>
         )}
@@ -165,7 +252,10 @@ export default function App() {
   }
 
   // GAME
-  const isMyTurn = game.turn === me;
+  const matched = game.matched || [];
+  const flipped = game.flipped || [];
+  const deck = game.deck || [];
+  const isMyTurn = game.turn === me && game.phase === "playing";
   const tp = PLAYERS[game.turn];
   const winner = game.phase === "finished"
     ? game.scores.alisa > game.scores.alesha ? "alisa"
@@ -177,7 +267,6 @@ export default function App() {
     <div style={s.root}>
       <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800&display=swap" rel="stylesheet" />
 
-      {/* Score bar */}
       <div style={s.scoreBar}>
         {["alisa", "alesha"].map(k => {
           const p = PLAYERS[k];
@@ -197,7 +286,6 @@ export default function App() {
         })}
       </div>
 
-      {/* Turn indicator */}
       {game.phase === "playing" && (
         <div style={{
           ...s.turnBar,
@@ -208,7 +296,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Victory */}
       {winner && (
         <div style={s.victoryBar}>
           {winner === "draw"
@@ -221,12 +308,11 @@ export default function App() {
         </div>
       )}
 
-      {/* Board */}
       <div style={s.boardWrap}>
         <div style={s.board}>
-          {(game.deck || []).map((card, idx) => {
-            const isFlipped = (game.flipped || []).includes(idx);
-            const isMatched = (game.matched || []).includes(idx);
+          {deck.map((card, idx) => {
+            const isFlipped = flipped.includes(idx);
+            const isMatched = matched.includes(idx);
             const show = isFlipped || isMatched;
             return (
               <button
