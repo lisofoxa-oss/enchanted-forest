@@ -3,11 +3,8 @@ import { getDatabase, ref, set, onValue, get } from 'firebase/database';
 
 // ============================================
 // 🔥 ВСТАВЬ СЮДА СВОЙ FIREBASE CONFIG
+// (тот же что был для Зачарованного Леса)
 // ============================================
-// 1. Зайди на https://console.firebase.google.com
-// 2. Создай новый проект (имя любое)
-// 3. В проекте нажми "Add app" → Web (</>) 
-// 4. Скопируй firebaseConfig объект сюда:
 
 const firebaseConfig = {
   apiKey: "AIzaSyCqRiciWDtvlojGl7rHYtEI9PTKz-ARZtI",
@@ -25,7 +22,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
-const GAME_REF = 'enchanted-forest/game';
+const GAME_REF = 'memo-game/state';
 
 export async function saveGame(gameState) {
   try {
